@@ -1,0 +1,23 @@
+[package]
+name = "picasort-db"
+version = "0.0.1"
+edition = "2024"
+description = "Database library for Picasort application"
+authors = ["Sylvain Gubian <sgubian@lmur-catta.org>"]
+
+[package.metadata]
+copyright = "Copyright (c) 2025 Lemur-Catta Production"
+
+[lib]
+name = "picasort_db"
+path = "src/lib.rs"
+
+[dependencies]
+uuid = { workspace = true }
+thiserror = {workspace = true}
+tracing = { workspace = true }
+
+
+[dev-dependencies]
+# criterion = { version = "0.7", features = ["html_reports"] }
+rstest = "0.26.1"

@@ -1,0 +1,26 @@
+[package]
+name = "picasort-api"
+version = "0.0.1"
+edition = "2024"
+description = "Core library of Picasort application"
+authors = ["Sylvain Gubian <sgubian@lmur-catta.org>"]
+
+[package.metadata]
+copyright = "Copyright (c) 2025 Lemur-Catta Production"
+
+[lib]
+name = "picasort_api"
+path = "src/lib.rs"
+
+[dependencies]
+uuid = { workspace = true }
+thiserror = {workspace = true}
+tracing = { workspace = true }
+chrono = "0.4.38"
+little_exif = "0.6.2"
+sha2 = "0.10.8"
+
+
+[dev-dependencies]
+# criterion = { version = "0.7", features = ["html_reports"] }
+rstest = "0.26.1"

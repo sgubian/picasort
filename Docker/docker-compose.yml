@@ -1,0 +1,21 @@
+# Copyright (c) 2024 Lemur-Catta.org
+# Author: Sylvain Gubian <sgubian@lemur-catta.org>
+version: "3.9"
+
+services:
+  db:
+    image: picasortdb:latest
+    container_name: postgisdb
+    environment:
+      POSTGRES_USER: $PICASORT_DB_USER_NAME
+      POSTGRES_PASSWORD: $PICASORT_DB_USER_PASSWD
+      POSTGRES_DB: $PICASORT_DB_NAME
+    volumes:
+      - db_data:/var/lib/postgresql
+      #- ./initdb:/docker-entrypoint-initdb.d
+    ports:
+      - "$PICASORT_DB_HOST_PORT:$PICASORT_DB_DOCKER_PORT"
+    restart: unless-stopped
+
+volumes:
+  db_data:

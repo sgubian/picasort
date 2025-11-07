@@ -1,0 +1,42 @@
+# Cargo build output
+/target/
+
+# Cargo package files
+**/Cargo.lock
+
+# If using Rust’s documentation output
+**/doc/
+
+# Executables
+*.exe
+*.dll
+*.dylib
+*.so
+
+# Backup files
+*.rs.bk
+*.swp
+*.swo
+
+# Editor/IDE folders
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# MacOS
+.DS_Store
+
+# Logs
+*.log
+
+# Generated files by build scripts
+build/
+*.rlib
+*.rmeta
+
+# Test output
+/test-output/
+
+# Node.js (if using wasm + npm)
+node_modules/

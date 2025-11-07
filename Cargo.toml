@@ -1,0 +1,24 @@
+[workspace]
+members = [
+    "picasort-core",
+    "picasort-api",
+    "picasort-webapp",
+    "picasort-ai",
+    "picasort-db",
+]
+resolver = "3"
+
+[workspace.metadata]
+copyright = "Copyright (c) 2025 Lemur-Catta Production"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+authors = ["Sylvain Gubian <sgubian@lemur-catta.org>"]
+description = "Picasort - Sorting and searching images application"
+
+[workspace.dependencies]
+uuid = { version = "1.17.0", features = ["v4", "serde", "js"] }
+anyhow = "1.0.98"
+tracing = "0.1.41"
+thiserror = "2.0.12"
