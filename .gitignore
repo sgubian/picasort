@@ -40,3 +40,6 @@ build/
 
 # Node.js (if using wasm + npm)
 node_modules/
+
+# Secrets
+Docker/secrets/*
