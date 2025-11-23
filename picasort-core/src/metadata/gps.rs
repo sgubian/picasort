@@ -1,13 +1,14 @@
 // Copyright (c) 2024 Lemur-Catta.org
 // Author: Sylvain Gubian <sgubian@lemur-catta.org>
 
-use crate::metadata::exif::{ExifExtractable, ExifOutput};
+use crate::metadata::exif::{
+    ExifExtractable, ExifOutput, get_tag_value, string_to_date, vec_to_time,
+};
 use crate::try_assert;
 use chrono::{NaiveDate, NaiveTime};
 use little_exif::exif_tag::ExifTag;
 use little_exif::metadata::Metadata;
 use little_exif::rational::uR64;
-use little_exif::u8conversion::U8conversion;
 
 use crate::error::CoreError;
 
@@ -40,18 +41,13 @@ impl ExifExtractable for GPSCoord {
                 "Incorrect number of arguments for coordinates extraction.".into(),
             )
         );
-        if let Some(tag) = metadata.get_tag(&tags[0]).next() {
-            let endian = metadata.get_endian();
-            let tag_value = <Vec<uR64> as U8conversion<Vec<uR64>>>::from_u8_vec(
-                &tag.value_as_u8_vec(&endian),
-                &endian,
-            );
-            self.deg = tag_value[0].nominator;
-            self.min = tag_value[1].nominator;
-            self.sec = tag_value[2].nominator as f32 / tag_value[2].denominator as f32;
-        } else {
+        let Ok(tag_values) = get_tag_value::<Vec<uR64>>(&tags[0], metadata) else {
             return Err(CoreError::InvalidGPSData("Tag not found".into()));
-        }
+        };
+        self.deg = tag_values[0].nominator;
+        self.min = tag_values[1].nominator;
+        self.sec = tag_values[2].nominator as f32 / tag_values[2].denominator as f32;
+
         self.reference = String::convert(&tags[1], metadata)?;
         Ok(())
     }
@@ -62,20 +58,11 @@ impl ExifExtractable for GPSTiming {
         try_assert!(
             tags.len() == 2,
             CoreError::InvalidGPSData(
-                "Incorrect number of arguments for Timing extraction.".into(),
+                "Incorrect number of arguments for GPS Timing extraction.".into(),
             )
         );
-        let date_str = String::convert(&tags[0], metadata)?;
-        let time_u64_vec = Vec::convert(&tags[1], metadata)?;
-
-        self.date_stamp = NaiveDate::parse_from_str(&date_str, "%Y:%m:%d")?;
-        self.time_stamp = {
-            let time_str = format!(
-                "{:?}:{:?}:{:?}",
-                time_u64_vec[0].nominator, time_u64_vec[1].nominator, time_u64_vec[2].nominator
-            );
-            NaiveTime::parse_from_str(&time_str, "%H:%M:%S")?
-        };
+        self.date_stamp = string_to_date(&tags[0], metadata)?;
+        self.time_stamp = vec_to_time(&tags[1], metadata)?;
         Ok(())
     }
 }
