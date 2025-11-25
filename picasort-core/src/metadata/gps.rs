@@ -1,109 +1,82 @@
 // Copyright (c) 2024 Lemur-Catta.org
 // Author: Sylvain Gubian <sgubian@lemur-catta.org>
 
+use crate::DynamicGetSet;
 use crate::metadata::exif::{
-    ExifExtractable, ExifOutput, get_tag_value, string_to_date, vec_to_time,
+    ExifAssignable, ExtractionSet, TagContext, extract_date, extract_gps_coord, extract_string,
+    extract_time,
 };
-use crate::try_assert;
 use chrono::{NaiveDate, NaiveTime};
 use little_exif::exif_tag::ExifTag;
-use little_exif::metadata::Metadata;
-use little_exif::rational::uR64;
-
-use crate::error::CoreError;
 
 #[derive(Debug, Default)]
 pub struct GPSCoord {
-    reference: String,
-    deg: u32,
-    min: u32,
-    sec: f32,
+    pub deg: usize,
+    pub min: usize,
+    pub sec: f64,
 }
 
-#[derive(Debug, Default)]
-pub struct GPSTiming {
-    time_stamp: NaiveTime,
-    date_stamp: NaiveDate,
-}
-
-#[derive(Debug, Default)]
+#[derive(Debug, Default, DynamicGetSet)]
 pub struct GPSData {
-    pub latitude: GPSCoord,
-    pub longitude: GPSCoord,
-    pub time: GPSTiming,
+    pub latitude_ref: Option<String>,
+    pub latitude: Option<GPSCoord>,
+    pub longitude_ref: Option<String>,
+    pub longitude: Option<GPSCoord>,
+    pub time: Option<NaiveTime>,
+    pub date: Option<NaiveDate>,
 }
 
-impl ExifExtractable for GPSCoord {
-    fn extract_from(&mut self, metadata: &Metadata, tags: &[ExifTag]) -> Result<(), CoreError> {
-        try_assert!(
-            tags.len() == 2,
-            CoreError::InvalidGPSData(
-                "Incorrect number of arguments for coordinates extraction.".into(),
-            )
-        );
-        let Ok(tag_values) = get_tag_value::<Vec<uR64>>(&tags[0], metadata) else {
-            return Err(CoreError::InvalidGPSData("Tag not found".into()));
-        };
-        self.deg = tag_values[0].nominator;
-        self.min = tag_values[1].nominator;
-        self.sec = tag_values[2].nominator as f32 / tag_values[2].denominator as f32;
-
-        self.reference = String::convert(&tags[1], metadata)?;
-        Ok(())
+impl<'a> ExifAssignable<'a> for GPSData {
+    fn exif_set(&self) -> Option<ExtractionSet<'a>> {
+        Some(ExtractionSet {
+            tags: vec![
+                TagContext {
+                    destination: "latitude_ref",
+                    main_tag: ExifTag::GPSLatitudeRef(String::new()),
+                    alternative: None,
+                    convert: extract_string,
+                },
+                TagContext {
+                    destination: "latitude",
+                    main_tag: ExifTag::GPSLatitude(Vec::new()),
+                    alternative: None,
+                    convert: extract_gps_coord,
+                },
+                TagContext {
+                    destination: "longitude_ref",
+                    main_tag: ExifTag::GPSLongitudeRef(String::new()),
+                    alternative: None,
+                    convert: extract_string,
+                },
+                TagContext {
+                    destination: "longitude",
+                    main_tag: ExifTag::GPSLongitude(Vec::new()),
+                    alternative: None,
+                    convert: extract_gps_coord,
+                },
+                TagContext {
+                    destination: "time",
+                    main_tag: ExifTag::GPSTimeStamp(Vec::new()),
+                    alternative: None,
+                    convert: extract_time,
+                },
+                TagContext {
+                    destination: "date",
+                    main_tag: ExifTag::GPSDateStamp(String::new()),
+                    alternative: None,
+                    convert: extract_date,
+                },
+            ],
+        })
     }
-}
-
-impl ExifExtractable for GPSTiming {
-    fn extract_from(&mut self, metadata: &Metadata, tags: &[ExifTag]) -> Result<(), CoreError> {
-        try_assert!(
-            tags.len() == 2,
-            CoreError::InvalidGPSData(
-                "Incorrect number of arguments for GPS Timing extraction.".into(),
-            )
-        );
-        self.date_stamp = string_to_date(&tags[0], metadata)?;
-        self.time_stamp = vec_to_time(&tags[1], metadata)?;
-        Ok(())
-    }
-}
-
-pub fn get_gps_data(metadata: &Metadata) -> Result<GPSData, CoreError> {
-    let mut gps_data = GPSData::default();
-    GPSCoord::extract_from(
-        &mut gps_data.latitude,
-        metadata,
-        &vec![
-            ExifTag::GPSLatitude(Vec::new()),
-            ExifTag::GPSLatitudeRef(String::new()),
-        ],
-    )?;
-    GPSCoord::extract_from(
-        &mut gps_data.longitude,
-        metadata,
-        &vec![
-            ExifTag::GPSLongitude(Vec::new()),
-            ExifTag::GPSLongitudeRef(String::new()),
-        ],
-    )?;
-    GPSTiming::extract_from(
-        &mut gps_data.time,
-        metadata,
-        &vec![
-            ExifTag::GPSDateStamp(String::new()),
-            ExifTag::GPSTimeStamp(Vec::new()),
-        ],
-    )?;
-
-    Ok(gps_data)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use little_exif::exif_tag::ExifTag;
     use rstest::rstest;
 
-    use crate::{error::CoreError, metadata::gps::get_gps_data};
+    use crate::metadata::exif::ExifAssignable;
+
     fn get_metadata(filename: &str) -> little_exif::metadata::Metadata {
         use std::path::Path;
         let image_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -113,72 +86,49 @@ mod tests {
     }
 
     #[rstest]
-    #[case("text_car_animal_no-gps.png", false, "", 0, "")]
-    #[case("text_icon_gps.jpg", true, "N", 45, "2024-10-29")]
-    fn has_gps_data(
+    #[case("text_car_animal_no-gps.png", "latitude", None, None, None, None)]
+    #[case(
+        "text_icon_gps.jpg",
+        "latitude",
+        Some("N".to_string()),
+        Some(45),
+        Some(45),
+        Some(37.05)
+    )]
+    #[case(
+        "text_icon_gps.jpg",
+        "longitude",
+        Some("E".to_string()),
+        Some(4),
+        Some(51),
+        Some(20.96)
+    )]
+    fn has_gps_coord(
         #[case] filename: &str,
-        #[case] expected: bool,
-        #[case] reference: &str,
-        #[case] deg: u32,
-        #[case] date: &str,
-    ) -> Result<(), CoreError> {
-        let metadata = get_metadata(filename);
-        let gps_data = get_gps_data(&metadata);
-
-        if expected {
-            if let Ok(data) = gps_data {
-                assert!(data.latitude.reference == reference);
-                assert!(data.latitude.deg == deg);
-                assert!(data.time.date_stamp.to_string() == date);
-            } else {
-                panic!("No GPS data found")
-            };
-        } else {
-            let err = gps_data.unwrap_err();
-            assert!(matches!(err, CoreError::InvalidGPSData(_)));
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    #[case("text_icon_gps.jpg", &vec![ExifTag::GPSDateStamp(String::new())], false)]
-    #[case("text_icon_gps.jpg", &vec![ExifTag::GPSLatitude(Vec::new()), ExifTag::GPSLatitudeRef(String::new()),], true)]
-    fn must_convert_coord_data(
-        #[case] filename: &str,
-        #[case] tags: &[ExifTag],
-        #[case] ok_tags: bool,
-    ) -> Result<(), CoreError> {
+        #[case] direction: &str,
+        #[case] reference: Option<String>,
+        #[case] deg: Option<usize>,
+        #[case] min: Option<usize>,
+        #[case] sec: Option<f64>,
+    ) {
         use crate::metadata::gps::GPSData;
 
         let metadata = get_metadata(filename);
         let mut gps_data = GPSData::default();
-        let result = GPSCoord::extract_from(&mut gps_data.latitude, &metadata, tags);
-        if ok_tags {
-            assert!(result.is_ok())
-        } else {
-            assert!(matches!(result.unwrap_err(), CoreError::InvalidGPSData(_)));
+        let res = gps_data.assign(&metadata);
+        if res.is_err() {
+            panic!("Error when assigning");
         }
-        Ok(())
-    }
-
-    #[rstest]
-    #[case("text_icon_gps.jpg", &vec![ExifTag::GPSLatitude(Vec::new())], false)]
-    #[case("text_icon_gps.jpg", &vec![ExifTag::GPSDateStamp(String::new()), ExifTag::GPSTimeStamp(Vec::new())], true)]
-    fn must_convert_time_data(
-        #[case] filename: &str,
-        #[case] tags: &[ExifTag],
-        #[case] ok_tags: bool,
-    ) -> Result<(), CoreError> {
-        use crate::metadata::gps::GPSData;
-
-        let metadata = get_metadata(filename);
-        let mut gps_data = GPSData::default();
-        let result = GPSTiming::extract_from(&mut gps_data.time, &metadata, tags);
-        if ok_tags {
-            assert!(result.is_ok())
-        } else {
-            assert!(matches!(result.unwrap_err(), CoreError::InvalidGPSData(_)));
+        let mut coord = gps_data.latitude.unwrap_or_default();
+        let mut refe = gps_data.latitude_ref.unwrap_or_default();
+        if direction != "latitude" {
+            coord = gps_data.longitude.unwrap_or_default();
+            refe = gps_data.longitude_ref.unwrap_or_default();
         }
-        Ok(())
+
+        assert_eq!(refe, reference.unwrap_or_default());
+        assert_eq!(coord.deg, deg.unwrap_or_default());
+        assert_eq!(coord.min, min.unwrap_or_default());
+        assert_eq!(coord.sec, sec.unwrap_or_default());
     }
 }

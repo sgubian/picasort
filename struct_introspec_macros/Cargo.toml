@@ -1,0 +1,13 @@
+[package]
+name = "struct_introspec_macros"
+version = "0.1.1"
+edition = "2024"
+description = "Allowing fields of struct to be accessed using litteral names"
+authors = ["Sylvain Gubian <sgubian@lemur-catta.org>"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "2.0.104"
+quote = "1.0.40"

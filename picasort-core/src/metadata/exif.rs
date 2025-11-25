@@ -1,74 +1,188 @@
 // Copyright (c) 2024 Lemur-Catta.org
 // Author: Sylvain Gubian <sgubian@lemur-catta.org>
 
+use std::fmt::Debug;
+
+use crate::{DynamicGetSet, error::CoreError, metadata::gps::GPSCoord};
 use chrono::{NaiveDate, NaiveTime};
 use little_exif::{
     exif_tag::ExifTag, metadata::Metadata, rational::uR64, u8conversion::U8conversion,
 };
 
-use crate::error::CoreError;
+#[derive(Debug)]
+pub enum ExtractedValue {
+    Text(String),
+    Numbers(Vec<uR64>),
+    UnsignedInt(usize),
+    Date(NaiveDate),
+    Time(NaiveTime),
+    GPSCoord(GPSCoord),
+    // add more as needed
+}
+
+pub struct TagContext<'a> {
+    pub destination: &'a str,
+    pub main_tag: ExifTag,
+    pub alternative: Option<ExifTag>,
+    pub convert: fn(&ExifTag, &Metadata) -> Option<ExtractedValue>,
+}
+
+pub struct ExtractionSet<'a> {
+    pub tags: Vec<TagContext<'a>>,
+}
+
 pub trait ExifExtractable {
-    fn extract_from(&mut self, metadata: &Metadata, tags: &[ExifTag]) -> Result<(), CoreError>;
-}
-
-pub trait ExifOutput {
     type Output;
-    fn convert(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output;
+    fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output;
 }
 
-impl ExifOutput for String {
-    type Output = Result<String, CoreError>;
-    fn convert(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
-        if let Some(tag) = metadata.get_tag(exif_tag).next() {
-            let endian = metadata.get_endian();
-            let tag_value = String::from_utf8(tag.value_as_u8_vec(&endian))?;
-            Ok(tag_value.replace("\0", ""))
-        } else {
-            Err(CoreError::EXIFTagNotFound())
+pub trait ExifAssignable<'a>: DynamicGetSet + Debug {
+    fn exif_set(&self) -> Option<ExtractionSet<'a>> {
+        None
+    }
+    fn is_valid(&self) -> bool {
+        true
+    }
+    fn assign(&mut self, metadata: &Metadata) -> Result<(), &'static str> {
+        if let Some(es) = self.exif_set() {
+            for tag in es.tags {
+                let mut value = (tag.convert)(&tag.main_tag, metadata);
+                if value.is_none()
+                    && let Some(alt_tag) = tag.alternative
+                {
+                    value = (tag.convert)(&alt_tag, metadata);
+                }
+
+                match value {
+                    Some(ExtractedValue::Text(s)) => {
+                        self.set_field_by_name(tag.destination, Box::new(Some(s)))?;
+                    }
+                    Some(ExtractedValue::Time(t)) => {
+                        self.set_field_by_name(tag.destination, Box::new(Some(t)))?;
+                    }
+                    Some(ExtractedValue::Numbers(n)) => {
+                        self.set_field_by_name(tag.destination, Box::new(Some(n)))?;
+                    }
+                    Some(ExtractedValue::Date(d)) => {
+                        self.set_field_by_name(tag.destination, Box::new(Some(d)))?;
+                    }
+                    Some(ExtractedValue::UnsignedInt(i)) => {
+                        self.set_field_by_name(tag.destination, Box::new(Some(i)))?;
+                    }
+                    Some(ExtractedValue::GPSCoord(c)) => {
+                        self.set_field_by_name(tag.destination, Box::new(Some(c)))?;
+                    }
+                    None => (),
+                }
+            }
+            println!("Object: {:?}", &self);
         }
+        Ok(())
     }
 }
 
-impl ExifOutput for Vec<uR64> {
-    type Output = Result<Vec<uR64>, CoreError>;
-    fn convert(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
-        if let Some(tag) = metadata.get_tag(exif_tag).next() {
-            let endian = metadata.get_endian();
-            let tag_value = <Vec<uR64> as U8conversion<Vec<uR64>>>::from_u8_vec(
-                &tag.value_as_u8_vec(&endian),
-                &endian,
-            );
-            Ok(tag_value)
-        } else {
-            Err(CoreError::EXIFTagNotFound())
-        }
-    }
-}
-
-pub fn string_to_date(tag: &ExifTag, metadata: &Metadata) -> Result<NaiveDate, CoreError> {
-    let date_str = String::convert(tag, metadata)?;
-    Ok(NaiveDate::parse_from_str(&date_str, "%Y:%m:%d")?)
-}
-
-pub fn vec_to_time(tag: &ExifTag, metadata: &Metadata) -> Result<NaiveTime, CoreError> {
-    let time_u64_vec = Vec::convert(tag, metadata)?;
-    let time_str = format!(
-        "{:?}:{:?}:{:?}",
-        time_u64_vec[0].nominator, time_u64_vec[1].nominator, time_u64_vec[2].nominator
-    );
-    Ok(NaiveTime::parse_from_str(&time_str, "%H:%M:%S")?)
-}
-
-pub fn get_tag_value<T: U8conversion<T>>(
-    tag: &ExifTag,
-    metadata: &Metadata,
-) -> Result<T, CoreError> {
+fn get_tag_value<T: U8conversion<T>>(tag: &ExifTag, metadata: &Metadata) -> Result<T, CoreError> {
     if let Some(tag) = metadata.get_tag(tag).next() {
         let endian = metadata.get_endian();
         let tag_value = <T>::from_u8_vec(&tag.value_as_u8_vec(&endian), &endian);
         return Ok(tag_value);
     }
-    Err(CoreError::InvalidEXIFConversion(
-        "Cannot get tag from metadata".to_string(),
-    ))
+    Err(CoreError::EXIFTagNotFound())
+}
+
+pub fn extract_unsigned_int(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    let Some(v) = Vec::<u32>::extract(tag, meta) else {
+        return None;
+    };
+    let Some(value) = v.into_iter().next() else {
+        return None;
+    };
+    Some(ExtractedValue::UnsignedInt(value as usize))
+}
+
+pub fn extract_string(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    String::extract(tag, meta).map(ExtractedValue::Text)
+}
+
+pub fn extract_numbers(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    Vec::<uR64>::extract(tag, meta).map(ExtractedValue::Numbers)
+}
+
+pub fn extract_date(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    NaiveDate::extract(tag, meta).map(ExtractedValue::Date)
+}
+
+pub fn extract_time(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    NaiveTime::extract(tag, meta).map(ExtractedValue::Time)
+}
+
+pub fn extract_gps_coord(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    if let Some(v) = Vec::<uR64>::extract(tag, meta) {
+        let mut coord = GPSCoord::default();
+        if v.len() != 3 {
+            return None;
+        }
+        coord.deg = v[0].nominator as usize;
+        coord.min = v[1].nominator as usize;
+        coord.sec = v[2].nominator as f64 / v[2].denominator as f64;
+        return Some(ExtractedValue::GPSCoord(coord));
+    }
+    return None;
+}
+
+impl ExifExtractable for String {
+    type Output = Option<String>;
+    fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
+        let Ok(tag_value) = get_tag_value::<String>(exif_tag, metadata) else {
+            return None;
+        };
+        Some(tag_value.replace("\0", ""))
+    }
+}
+
+impl ExifExtractable for Vec<uR64> {
+    type Output = Option<Vec<uR64>>;
+    fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
+        let Ok(value) = get_tag_value::<Vec<uR64>>(exif_tag, metadata) else {
+            return None;
+        };
+        Some(value)
+    }
+}
+
+impl ExifExtractable for Vec<u32> {
+    type Output = Option<Vec<u32>>;
+    fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
+        let Ok(value) = get_tag_value::<Vec<u32>>(exif_tag, metadata) else {
+            return None;
+        };
+        Some(value)
+    }
+}
+
+impl ExifExtractable for NaiveDate {
+    type Output = Option<NaiveDate>;
+    fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
+        let Some(date_str) = String::extract(exif_tag, metadata) else {
+            return None;
+        };
+        Some(NaiveDate::parse_from_str(&date_str, "%Y:%m:%d").unwrap_or_default())
+    }
+}
+
+impl ExifExtractable for NaiveTime {
+    type Output = Option<NaiveTime>;
+    fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
+        let Some(time_u64_vec) = <Vec<uR64>>::extract(exif_tag, metadata) else {
+            return None;
+        };
+        let time_str = format!(
+            "{:?}:{:?}:{:?}",
+            time_u64_vec[0].nominator, time_u64_vec[1].nominator, time_u64_vec[2].nominator
+        );
+        let Ok(nt) = NaiveTime::parse_from_str(&time_str, "%H:%M:%S") else {
+            return None;
+        };
+        Some(nt)
+    }
 }
