@@ -12,15 +12,15 @@ use little_exif::exif_tag::ExifTag;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Orientation {
-    Normal = 1,
-    FlippedHorizontally = 2,
-    Rotated180Deg = 3,
-    FlippedVertically = 4,
-    Rotated90DegCCWFlippedVertically = 5,
-    Rotated90DegCW = 6,
-    Rotated90DegCCWPFlippedHorizontally = 7,
-    Rotated90DegCCW = 8,
-    Unknown = 9,
+    Normal,
+    FlippedHorizontally,
+    Rotated180Deg,
+    FlippedVertically,
+    Rotated90DegCCWFlippedVertically,
+    Rotated90DegCW,
+    Rotated90DegCCWPFlippedHorizontally,
+    Rotated90DegCCW,
+    Unknown,
 }
 
 impl Default for Orientation {
@@ -44,8 +44,9 @@ impl Orientation {
         }
     }
 
-    pub fn code(&self) -> u16 {
-        *self as u16
+    // Here, the function takes ownership
+    pub fn code(self) -> u16 {
+        self as u16
     }
 }
 
