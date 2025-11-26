@@ -3,8 +3,8 @@
 
 use crate::DynamicGetSet;
 use crate::metadata::exif::{
-    ExifAssignable, ExtractionSet, TagContext, extract_date, extract_gps_coord, extract_string,
-    extract_time,
+    ExifAssignable, ExtractionSet, TagContext, extract_gps_coord, extract_naive_date,
+    extract_naive_time, extract_string,
 };
 use chrono::{NaiveDate, NaiveTime};
 use little_exif::exif_tag::ExifTag;
@@ -27,6 +27,25 @@ pub struct GPSData {
 }
 
 impl<'a> ExifAssignable<'a> for GPSData {
+    fn is_valid(&self) -> bool {
+        if let Some(lat) = &self.latitude_ref
+            && lat.as_str() != "N"
+            && lat.as_str() != "S"
+        {
+            return false;
+        }
+        if let Some(long) = &self.longitude_ref
+            && long.as_str() != "O"
+            && long.as_str() != "E"
+        {
+            return false;
+        }
+        if self.latitude.is_none() || self.longitude.is_none() {
+            return false;
+        }
+        true
+    }
+
     fn exif_set(&self) -> Option<ExtractionSet<'a>> {
         Some(ExtractionSet {
             tags: vec![
@@ -58,13 +77,13 @@ impl<'a> ExifAssignable<'a> for GPSData {
                     destination: "time",
                     main_tag: ExifTag::GPSTimeStamp(Vec::new()),
                     alternative: None,
-                    convert: extract_time,
+                    convert: extract_naive_time,
                 },
                 TagContext {
                     destination: "date",
                     main_tag: ExifTag::GPSDateStamp(String::new()),
                     alternative: None,
-                    convert: extract_date,
+                    convert: extract_naive_date,
                 },
             ],
         })
@@ -73,6 +92,8 @@ impl<'a> ExifAssignable<'a> for GPSData {
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDate;
+    use chrono::NaiveTime;
     use rstest::rstest;
 
     use crate::metadata::exif::ExifAssignable;
@@ -86,14 +107,25 @@ mod tests {
     }
 
     #[rstest]
-    #[case("text_car_animal_no-gps.png", "latitude", None, None, None, None)]
+    #[case(
+        "text_car_animal_no-gps.png",
+        "latitude",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None
+    )]
     #[case(
         "text_icon_gps.jpg",
         "latitude",
         Some("N".to_string()),
         Some(45),
         Some(45),
-        Some(37.05)
+        Some(37.05),
+        Some("11:33:25"),
+        Some("2024-10-29"),
     )]
     #[case(
         "text_icon_gps.jpg",
@@ -101,7 +133,9 @@ mod tests {
         Some("E".to_string()),
         Some(4),
         Some(51),
-        Some(20.96)
+        Some(20.96),
+        Some("11:33:25"),
+        Some("2024-10-29"),
     )]
     fn has_gps_coord(
         #[case] filename: &str,
@@ -110,6 +144,8 @@ mod tests {
         #[case] deg: Option<usize>,
         #[case] min: Option<usize>,
         #[case] sec: Option<f64>,
+        #[case] time: Option<&str>,
+        #[case] date: Option<&str>,
     ) {
         use crate::metadata::gps::GPSData;
 
@@ -130,5 +166,32 @@ mod tests {
         assert_eq!(coord.deg, deg.unwrap_or_default());
         assert_eq!(coord.min, min.unwrap_or_default());
         assert_eq!(coord.sec, sec.unwrap_or_default());
+        if gps_data.time.is_some() {
+            assert_eq!(
+                gps_data.time,
+                Some(NaiveTime::parse_from_str(time.unwrap_or_default(), "%H:%M:%S").unwrap())
+            );
+        }
+        if gps_data.date.is_some() {
+            assert_eq!(
+                gps_data.date,
+                Some(NaiveDate::parse_from_str(date.unwrap_or_default(), "%Y-%m-%d").unwrap())
+            );
+        }
+    }
+
+    #[rstest]
+    #[case("text_car_animal_no-gps.png", false)]
+    #[case("text_icon_gps.jpg", true)]
+    fn has_validity_check(#[case] filename: &str, #[case] expected: bool) {
+        use crate::metadata::gps::GPSData;
+
+        let metadata = get_metadata(filename);
+        let mut gps_data = GPSData::default();
+        let res = gps_data.assign(&metadata);
+        if res.is_err() {
+            panic!("Error when assigning");
+        }
+        assert_eq!(gps_data.is_valid(), expected);
     }
 }

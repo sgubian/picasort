@@ -3,8 +3,12 @@
 
 use std::fmt::Debug;
 
-use crate::{DynamicGetSet, error::CoreError, metadata::gps::GPSCoord};
-use chrono::{NaiveDate, NaiveTime};
+use crate::{
+    DynamicGetSet,
+    error::CoreError,
+    metadata::{basics::Orientation, gps::GPSCoord},
+};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use little_exif::{
     exif_tag::ExifTag, metadata::Metadata, rational::uR64, u8conversion::U8conversion,
 };
@@ -17,6 +21,8 @@ pub enum ExtractedValue {
     Date(NaiveDate),
     Time(NaiveTime),
     GPSCoord(GPSCoord),
+    Orientation(Orientation),
+    DateTime(DateTime<Utc>),
     // add more as needed
 }
 
@@ -72,10 +78,15 @@ pub trait ExifAssignable<'a>: DynamicGetSet + Debug {
                     Some(ExtractedValue::GPSCoord(c)) => {
                         self.set_field_by_name(tag.destination, Box::new(Some(c)))?;
                     }
+                    Some(ExtractedValue::Orientation(o)) => {
+                        self.set_field_by_name(tag.destination, Box::new(Some(o)))?;
+                    }
+                    Some(ExtractedValue::DateTime(dt)) => {
+                        self.set_field_by_name(tag.destination, Box::new(Some(dt)))?;
+                    }
                     None => (),
                 }
             }
-            println!("Object: {:?}", &self);
         }
         Ok(())
     }
@@ -90,8 +101,28 @@ fn get_tag_value<T: U8conversion<T>>(tag: &ExifTag, metadata: &Metadata) -> Resu
     Err(CoreError::EXIFTagNotFound())
 }
 
-pub fn extract_unsigned_int(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+pub fn extract_unsigned_int32(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
     let Some(v) = Vec::<u32>::extract(tag, meta) else {
+        return None;
+    };
+    let Some(value) = v.into_iter().next() else {
+        return None;
+    };
+    Some(ExtractedValue::UnsignedInt(value as usize))
+}
+
+pub fn extract_orientation(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    let Some(v) = Vec::<u16>::extract(tag, meta) else {
+        return None;
+    };
+    let Some(value) = v.into_iter().next() else {
+        return None;
+    };
+    Some(ExtractedValue::Orientation(Orientation::from_code(value)))
+}
+
+pub fn extract_unsigned_int16(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    let Some(v) = Vec::<u16>::extract(tag, meta) else {
         return None;
     };
     let Some(value) = v.into_iter().next() else {
@@ -108,11 +139,15 @@ pub fn extract_numbers(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue>
     Vec::<uR64>::extract(tag, meta).map(ExtractedValue::Numbers)
 }
 
-pub fn extract_date(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+pub fn extract_naive_date(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
     NaiveDate::extract(tag, meta).map(ExtractedValue::Date)
 }
 
-pub fn extract_time(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+pub fn extract_utc_datetime(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
+    DateTime::<Utc>::extract(tag, meta).map(ExtractedValue::DateTime)
+}
+
+pub fn extract_naive_time(tag: &ExifTag, meta: &Metadata) -> Option<ExtractedValue> {
     NaiveTime::extract(tag, meta).map(ExtractedValue::Time)
 }
 
@@ -140,20 +175,14 @@ impl ExifExtractable for String {
     }
 }
 
-impl ExifExtractable for Vec<uR64> {
-    type Output = Option<Vec<uR64>>;
+impl<T> ExifExtractable for Vec<T>
+where
+    // T: U8conversion<T>,
+    Vec<T>: U8conversion<Vec<T>>,
+{
+    type Output = Option<Vec<T>>;
     fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
-        let Ok(value) = get_tag_value::<Vec<uR64>>(exif_tag, metadata) else {
-            return None;
-        };
-        Some(value)
-    }
-}
-
-impl ExifExtractable for Vec<u32> {
-    type Output = Option<Vec<u32>>;
-    fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
-        let Ok(value) = get_tag_value::<Vec<u32>>(exif_tag, metadata) else {
+        let Ok(value) = get_tag_value::<Vec<T>>(exif_tag, metadata) else {
             return None;
         };
         Some(value)
@@ -167,6 +196,19 @@ impl ExifExtractable for NaiveDate {
             return None;
         };
         Some(NaiveDate::parse_from_str(&date_str, "%Y:%m:%d").unwrap_or_default())
+    }
+}
+
+impl ExifExtractable for DateTime<Utc> {
+    type Output = Option<DateTime<Utc>>;
+    fn extract(exif_tag: &ExifTag, metadata: &Metadata) -> Self::Output {
+        let Some(datetime) = String::extract(exif_tag, metadata) else {
+            return None;
+        };
+        match NaiveDateTime::parse_from_str(&datetime, "%Y:%m:%d %H:%M:%S") {
+            Ok(dt) => return Some(dt.and_utc()),
+            Err(_) => return None,
+        }
     }
 }
 
