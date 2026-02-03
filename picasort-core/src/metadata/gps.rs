@@ -90,6 +90,7 @@ impl<'a> ExifAssignable<'a> for GPSData {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
@@ -105,7 +106,6 @@ mod tests {
             .join(filename);
         little_exif::metadata::Metadata::new_from_path(&image_path).unwrap()
     }
-
     #[rstest]
     #[case(
         "text_car_animal_no-gps.png",
