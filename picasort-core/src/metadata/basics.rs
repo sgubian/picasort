@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Lemur-Catta.org
+// Copyright (c) 2026 Lemur-Catta.org
 // Author: Sylvain Gubian <sgubian@lemur-catta.org>
 
 use crate::metadata::exif::{

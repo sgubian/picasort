@@ -2,5 +2,6 @@
 // Author: Sylvain Gubian <sgubian@lemur-catta.org>
 
 pub mod basics;
+mod camera;
 pub mod exif;
 pub mod gps;
